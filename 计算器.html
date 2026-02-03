@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>交易员助手</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 React 和 ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- 引入 Babel 用于解析 JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* 简单的淡入动画 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        /* 防止手机点击高亮 */
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 md:bg-slate-200 min-h-screen">
+
+<div id="root"></div>
+
+<script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // --- 图标组件 (SVG) ---
+    const CalculatorIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>
+    );
+    const ArrowUpCircle = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/></svg>
+    );
+    const ArrowDownCircle = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="m8 12 4 4 4-4"/></svg>
+    );
+    const DollarSign = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    );
+    const Target = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+    );
+    const Percent = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+    );
+
+    const App = () => {
+        // 核心状态
+        const [mode, setMode] = useState('price'); // 'price', 'amount', 'ratio'
+        const [direction, setDirection] = useState('long'); // 'long', 'short'
+        
+        // 基础输入
+        const [margin, setMargin] = useState('80');
+        const [leverage, setLeverage] = useState('50');
+        const [entryPrice, setEntryPrice] = useState('1.17071');
+
+        // 模式特定输入
+        const [tpPrice, setTpPrice] = useState('1.18655');
+        const [slPrice, setSlPrice] = useState('1.16889');
+        
+        const [tpAmount, setTpAmount] = useState('30');
+        const [slAmount, setSlAmount] = useState('20');
+        
+        const [riskRewardRatio, setRiskRewardRatio] = useState('2'); // 1:X
+
+        // 结果状态
+        const [results, setResults] = useState(null);
+
+        // 计算逻辑
+        useEffect(() => {
+            calculate();
+        }, [mode, direction, margin, leverage, entryPrice, tpPrice, slPrice, tpAmount, slAmount, riskRewardRatio]);
+
+        const calculate = () => {
+            const m = parseFloat(margin);
+            const l = parseFloat(leverage);
+            const entry = parseFloat(entryPrice);
+            
+            if (!m || !l || !entry) {
+            setResults(null);
+            return;
+            }
+
+            const totalVolume = m * l; // 总仓位价值 (假设基础货币计价)
+            const dirMult = direction === 'long' ? 1 : -1;
+
+            let res = {};
+
+            // --- 场景 1: 已知价格，求金额 ---
+            if (mode === 'price') {
+            const tp = parseFloat(tpPrice);
+            const sl = parseFloat(slPrice);
+
+            if (tp) {
+                // 公式: 本金 * 杠杆 * ((卖出价 - 买入价) / 买入价) * 方向
+                const profit = totalVolume * ((tp - entry) / entry) * dirMult;
+                res.tpAmount = profit;
+                res.tpPrice = tp; // 回显
+            }
+            if (sl) {
+                const loss = totalVolume * ((sl - entry) / entry) * dirMult;
+                res.slAmount = loss;
+                res.slPrice = sl; // 回显
+            }
+            }
+
+            // --- 场景 2: 已知金额，求价格 ---
+            else if (mode === 'amount') {
+            const tpa = parseFloat(tpAmount);
+            const sla = parseFloat(slAmount);
+
+            // 价格 = 进场价 * (1 + (目标金额 / 总仓位 / 方向))
+            if (tpa) {
+                const targetP = entry * (1 + (tpa / totalVolume * dirMult));
+                res.tpPrice = targetP;
+                res.tpAmount = tpa;
+            }
+            if (sla) {
+                // 注意：止损金额通常输入正数(如亏损20刀)，但计算时代表负收益
+                const targetS = entry * (1 + (-Math.abs(sla) / totalVolume * dirMult));
+                res.slPrice = targetS;
+                res.slAmount = -Math.abs(sla);
+            }
+            }
+
+            // --- 场景 3: 盈亏比模式 ---
+            else if (mode === 'ratio') {
+            const sl = parseFloat(slPrice);
+            const ratio = parseFloat(riskRewardRatio);
+
+            if (sl && ratio) {
+                // 1. 先算止损亏多少
+                const loss = totalVolume * ((sl - entry) / entry) * dirMult;
+                res.slAmount = loss;
+                res.slPrice = sl;
+
+                // 2. 根据盈亏比算目标盈利金额
+                const targetProfit = Math.abs(loss) * ratio;
+                res.tpAmount = targetProfit;
+
+                // 3. 反推止盈价格
+                const targetP = entry * (1 + (targetProfit / totalVolume * dirMult));
+                res.tpPrice = targetP;
+            }
+            }
+
+            setResults(res);
+        };
+
+        // 格式化货币
+        const formatMoney = (val) => {
+            if (val === undefined || isNaN(val)) return '---';
+            const num = parseFloat(val);
+            return (num >= 0 ? '+' : '') + num.toFixed(2) + ' USD';
+        };
+
+        // 格式化价格
+        const formatPrice = (val) => {
+            if (val === undefined || isNaN(val)) return '---';
+            return parseFloat(val).toFixed(5);
+        };
+
+        return (
+            <div className="flex justify-center items-start md:py-10 text-slate-800 font-sans">
+            
+            <div className="w-full max-w-md bg-slate-50 md:rounded-3xl md:shadow-2xl md:overflow-hidden min-h-screen md:min-h-0 flex flex-col">
+                
+                {/* 顶部标题栏 */}
+                <div className="bg-white shadow-sm sticky top-0 z-10 border-b border-slate-100">
+                <div className="px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                    <div className="bg-blue-100 p-1.5 rounded-lg text-blue-600">
+                        <CalculatorIcon />
+                    </div>
+                    <h1 className="font-bold text-lg text-slate-800">交易员助手</h1>
+                    </div>
+                    <button 
+                    onClick={() => {
+                        setMargin('80'); setLeverage('50'); setEntryPrice('1.17071'); 
+                        setTpPrice(''); setSlPrice(''); setTpAmount(''); setSlAmount('');
+                    }}
+                    className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full text-slate-500 transition-colors font-medium"
+                    >
+                    重置
+                    </button>
+                </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                <div className="px-4 py-4 space-y-4 pb-10">
+                    
+                    {/* 做多/做空 切换 */}
+                    <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
+                    <button
+                        onClick={() => setDirection('long')}
+                        className={`flex items-center justify-center gap-2 py-2.5 rounded-lg font-bold text-sm transition-all ${
+                        direction === 'long' 
+                            ? 'bg-green-500 text-white shadow-md transform scale-[1.02]' 
+                            : 'text-slate-500 hover:bg-slate-200'
+                        }`}
+                    >
+                        <ArrowUpCircle /> 做多 (Long)
+                    </button>
+                    <button
+                        onClick={() => setDirection('short')}
+                        className={`flex items-center justify-center gap-2 py-2.5 rounded-lg font-bold text-sm transition-all ${
+                        direction === 'short' 
+                            ? 'bg-red-500 text-white shadow-md transform scale-[1.02]' 
+                            : 'text-slate-500 hover:bg-slate-200'
+                        }`}
+                    >
+                        <ArrowDownCircle /> 做空 (Short)
+                    </button>
+                    </div>
+
+                    {/* 基础参数卡片 */}
+                    <div className="bg-white p-5 rounded-2xl shadow-sm space-y-4 border border-slate-100">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">预付款 ($)</label>
+                        <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                            <input 
+                            type="number" inputMode="decimal"
+                            value={margin} onChange={(e) => setMargin(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-6 pr-3 py-2.5 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+                        </div>
+                        <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">杠杆 (X)</label>
+                        <input 
+                            type="number" inputMode="decimal"
+                            value={leverage} onChange={(e) => setLeverage(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">进场价格</label>
+                        <input 
+                        type="number" inputMode="decimal"
+                        value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)}
+                        className="w-full bg-blue-50/50 border border-blue-100 rounded-lg px-3 py-3 text-xl font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        />
+                    </div>
+                    </div>
+
+                    {/* 模式选择 Tab */}
+                    <div className="flex bg-white rounded-xl border border-slate-100 p-1 shadow-sm">
+                    {[
+                        { id: 'price', label: '价格算金额', icon: DollarSign },
+                        { id: 'amount', label: '金额算价格', icon: Target },
+                        { id: 'ratio', label: '盈亏比', icon: Percent },
+                    ].map((tab) => (
+                        <button
+                        key={tab.id}
+                        onClick={() => setMode(tab.id)}
+                        className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                            mode === tab.id 
+                            ? 'bg-blue-50 text-blue-600 shadow-sm' 
+                            : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                        }`}
+                        >
+                        <tab.icon />
+                        {tab.label}
+                        </button>
+                    ))}
+                    </div>
+
+                    {/* 动态输入区域 */}
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                    
+                    {mode === 'price' && (
+                        <>
+                        <div>
+                            <label className="flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            <span>止盈价格 (TP)</span>
+                            <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded">目标</span>
+                            </label>
+                            <input 
+                            type="number" inputMode="decimal" placeholder="例如: 1.18655"
+                            value={tpPrice} onChange={(e) => setTpPrice(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:bg-green-50 focus:border-green-300 rounded-lg px-3 py-2.5 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-green-500/20 transition-all"
+                            />
+                        </div>
+                        <div>
+                            <label className="flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            <span>止损价格 (SL)</span>
+                            <span className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded">保护</span>
+                            </label>
+                            <input 
+                            type="number" inputMode="decimal" placeholder="例如: 1.16889"
+                            value={slPrice} onChange={(e) => setSlPrice(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:bg-red-50 focus:border-red-300 rounded-lg px-3 py-2.5 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-red-500/20 transition-all"
+                            />
+                        </div>
+                        </>
+                    )}
+
+                    {mode === 'amount' && (
+                        <>
+                        <div>
+                            <label className="flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            <span>目标盈利 ($)</span>
+                            </label>
+                            <input 
+                            type="number" inputMode="decimal" placeholder="例如: 30"
+                            value={tpAmount} onChange={(e) => setTpAmount(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:bg-green-50 focus:border-green-300 rounded-lg px-3 py-2.5 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-green-500/20 transition-all"
+                            />
+                        </div>
+                        <div>
+                            <label className="flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            <span>最大亏损 ($)</span>
+                            </label>
+                            <input 
+                            type="number" inputMode="decimal" placeholder="例如: 20"
+                            value={slAmount} onChange={(e) => setSlAmount(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:bg-red-50 focus:border-red-300 rounded-lg px-3 py-2.5 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-red-500/20 transition-all"
+                            />
+                        </div>
+                        </>
+                    )}
+
+                    {mode === 'ratio' && (
+                        <>
+                        <div>
+                            <label className="flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            <span>止损价格 (SL)</span>
+                            <span className="text-red-500 bg-red-50 px-1.5 py-0.5 rounded">基准</span>
+                            </label>
+                            <input 
+                            type="number" inputMode="decimal" placeholder="例如: 1.16889"
+                            value={slPrice} onChange={(e) => setSlPrice(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:bg-red-50 focus:border-red-300 rounded-lg px-3 py-2.5 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-red-500/20 transition-all"
+                            />
+                        </div>
+                        <div className="pt-2">
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">盈亏比 (Risk : Reward)</label>
+                            <div className="flex items-center gap-3">
+                            <span className="text-slate-400 font-bold text-lg">1 :</span>
+                            <input 
+                                type="number" inputMode="decimal" placeholder="2"
+                                value={riskRewardRatio} onChange={(e) => setRiskRewardRatio(e.target.value)}
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            </div>
+                            <div className="flex gap-2 mt-3">
+                            {[1.5, 2, 3, 5].map(r => (
+                                <button 
+                                key={r}
+                                onClick={() => setRiskRewardRatio(r.toString())}
+                                className={`flex-1 text-sm py-1.5 rounded-lg border font-medium transition-all ${parseFloat(riskRewardRatio) === r ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                                >
+                                1:{r}
+                                </button>
+                            ))}
+                            </div>
+                        </div>
+                        </>
+                    )}
+                    </div>
+
+                    {/* 结果展示区域 */}
+                    {results && (
+                    <div className="space-y-3 animate-fade-in pb-4">
+                        <div className="flex items-center gap-2 mb-2">
+                        <div className="h-px bg-slate-200 flex-1"></div>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">计算结果</h3>
+                        <div className="h-px bg-slate-200 flex-1"></div>
+                        </div>
+                        
+                        {/* 止盈结果卡片 */}
+                        <div className="bg-gradient-to-br from-green-50 to-white p-5 rounded-2xl border border-green-100 shadow-sm flex justify-between items-center relative overflow-hidden group hover:shadow-md transition-all">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-green-100 rounded-full -mr-10 -mt-10 opacity-30 group-hover:scale-110 transition-transform"></div>
+                        <div>
+                            <div className="text-xs text-green-700 font-bold uppercase tracking-wide mb-1 opacity-80">止盈目标 (TP)</div>
+                            <div className="text-2xl font-black text-slate-800 tracking-tight">{formatPrice(results.tpPrice)}</div>
+                        </div>
+                        <div className="text-right z-10">
+                            <div className="text-xs text-green-600 font-medium mb-1">预计盈利</div>
+                            <div className="text-xl font-bold text-green-600">{formatMoney(results.tpAmount)}</div>
+                        </div>
+                        </div>
+
+                        {/* 止损结果卡片 */}
+                        <div className="bg-gradient-to-br from-red-50 to-white p-5 rounded-2xl border border-red-100 shadow-sm flex justify-between items-center relative overflow-hidden group hover:shadow-md transition-all">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-red-100 rounded-full -mr-10 -mt-10 opacity-30 group-hover:scale-110 transition-transform"></div>
+                        <div>
+                            <div className="text-xs text-red-700 font-bold uppercase tracking-wide mb-1 opacity-80">止损位置 (SL)</div>
+                            <div className="text-2xl font-black text-slate-800 tracking-tight">{formatPrice(results.slPrice)}</div>
+                        </div>
+                        <div className="text-right z-10">
+                            <div className="text-xs text-red-600 font-medium mb-1">预计亏损</div>
+                            <div className="text-xl font-bold text-red-600">{formatMoney(results.slAmount)}</div>
+                        </div>
+                        </div>
+                        
+                        {/* 摘要信息 */}
+                        <div className="text-center text-xs text-slate-400 pt-2 font-medium">
+                        仓位总价值: <span className="text-slate-600">${(parseFloat(margin) * parseFloat(leverage)).toLocaleString()} USD</span>
+                        </div>
+                    </div>
+                    )}
+
+                </div>
+                </div>
+            </div>
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+</script>
+
+</body>
+</html>
